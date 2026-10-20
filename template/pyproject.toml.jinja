@@ -23,6 +23,8 @@ dependencies = [
     # BEA 1.x is model contract major 1, the contract this package is written against. A new
     # contract major is a new BEA major: move to it with `copier update`.
     "building-energy-analysis>=1.0,<2",
+    # Imported directly, for register_provenance_package and the test framework.
+    "project-configuration>=1.0,<2",
     "numpy",
 ]
 
