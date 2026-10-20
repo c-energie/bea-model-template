@@ -1,0 +1,138 @@
+# Render the template, install what it rendered, and run the rendered package's tests, on every
+# change (c-energie/smeter-test-workspace#18). Two renders on each leg of the 3-leg matrix:
+#
+# - default: every default answer (MIT);
+# - proprietary: licence=proprietary, with a package and class name of its own, so the derived
+#   names (import name, model name, test class names) are exercised too.
+#
+# Self-contained rather than a caller of c-energie/.github's unittest.yml: that workflow installs
+# the checkout itself, and here the package under test exists only once copier has rendered it.
+name: template
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-and-test:
+    name: ${{ matrix.render }} / ${{ matrix.os }} / py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.13"]
+        render: [default, proprietary]
+        include:
+          - {os: windows-latest, python: "3.13", render: default}
+          - {os: windows-latest, python: "3.13", render: proprietary}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "true"
+      TEST_TIER: fast
+      RENDERED: _rendered
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # copier renders from git (--vcs-ref HEAD), and reads the template's tags.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Render
+        env:
+          RENDER: ${{ matrix.render }}
+        run: |
+          set -euo pipefail
+          data=()
+          if [ "$RENDER" = proprietary ]; then
+            data=(-d licence=proprietary -d package_name=acme-models -d class_name=MyHTCModel)
+          fi
+          uvx copier copy --defaults --vcs-ref HEAD "${data[@]}" . "$RENDERED"
+
+      - name: Check the rendered files
+        env:
+          RENDER: ${{ matrix.render }}
+        working-directory: ${{ env.RENDERED }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          for file in pyproject.toml README.md AGENTS.md CLAUDE.md .gitignore .copier-answers.yml \
+                      .github/workflows/tests.yml; do
+            [ -f "$file" ] || fail "$file was not rendered"
+          done
+          # The agent-skills decision (c-energie/smeter-test-workspace#17).
+          lines=$(wc -l < AGENTS.md)
+          [ "$lines" -le 60 ] || fail "AGENTS.md is $lines lines; keep it to 60"
+          [ "$(tr -d '\r' < CLAUDE.md)" = "@AGENTS.md" ] || fail "CLAUDE.md must hold only @AGENTS.md"
+          # What a rendered repo never carries (c-energie/smeter-test-workspace#16).
+          for absent in CHANGELOG.md docs .python-version; do
+            [ ! -e "$absent" ] || fail "$absent must not be rendered"
+          done
+          if [ "$RENDER" = proprietary ]; then
+            [ ! -e LICENSE ] || fail "a proprietary render must have no LICENSE"
+            grep -q '"Private :: Do Not Upload"' pyproject.toml || fail "a proprietary render must carry Private :: Do Not Upload"
+          else
+            [ -f LICENSE ] || fail "an open-licence render must have a LICENSE"
+            grep -q '^license = "MIT"' pyproject.toml || fail "the default render must be MIT"
+            ! grep -q 'Private :: Do Not Upload' pyproject.toml || fail "an open-licence render must be uploadable"
+          fi
+
+      # The venv is activated for later steps through VIRTUAL_ENV (which `uv pip` installs into)
+      # and PATH (so `python` is the venv's). Windows needs a native path for both.
+      - name: Create venv
+        env:
+          PYTHON: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          uv venv --python "$PYTHON" .venv
+          venv="$(pwd)/.venv"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            venv="$(cygpath -w "$venv")"
+            bin="$venv\\Scripts"
+          else
+            bin="$venv/bin"
+          fi
+          echo "VIRTUAL_ENV=$venv" >> "$GITHUB_ENV"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      # BEA and project-configuration are private until the public flip: the token reaches git
+      # through its config only, never a requirement line. Skipped when the secret is empty.
+      - name: Authenticate git for private upstreams
+        env:
+          TOKEN: ${{ secrets.C_ENERGIE_READ_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+
+      # Until BEA 1.0 is on PyPI, BEA and project-configuration come from git. The rendered pin,
+      # building-energy-analysis>=1.0,<2, is what a user installs and stays as it is; the
+      # overrides replace it here only. Delete this file and the --override once 1.0 is released.
+      - name: Install
+        run: |
+          set -euo pipefail
+          cat > overrides.txt <<'EOF'
+          building-energy-analysis @ git+https://github.com/c-energie/building-energy-analysis@master
+          project-configuration @ git+https://github.com/c-energie/project-configuration@master
+          EOF
+          uv pip install --override overrides.txt -e "./$RENDERED[test]"
+
+      - name: Test
+        working-directory: ${{ env.RENDERED }}
+        run: python -m unittest discover -v
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-logs-${{ matrix.render }}-${{ matrix.os }}-py${{ matrix.python }}-attempt${{ github.run_attempt }}
+          path: ${{ env.RENDERED }}/tests/Logs/
+          if-no-files-found: ignore

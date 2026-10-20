@@ -1,0 +1,104 @@
+# bea-model-template: a BEA model package, generated with copier.
+#
+#   uvx copier copy gh:c-energie/bea-model-template <package-directory>
+#
+# Six questions, no feature toggles (c-energie/smeter-test-workspace#16). Unattended, pass each as
+# `--data <question>=<answer>`, or take every default with `--defaults`. The model contract the
+# rendered code is written against is the template's, never asked: template tags follow the
+# contract major, and `copier update` is the route from one major to the next.
+
+_min_copier_version: "9.0"
+_subdirectory: template
+_answers_file: .copier-answers.yml
+
+package_name:
+  type: str
+  help: Distribution name, as `pip install` sees it (suggested `<name>-models`)
+  default: toy-htc-models
+  validator: >-
+    {% if not (package_name | regex_search('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')) %}
+    Lower-case letters, digits and dashes only, e.g. my-htc-models.
+    {% endif %}
+
+import_name:
+  type: str
+  help: Import name of the package (`import <it>`)
+  default: "{{ package_name | replace('-', '_') }}"
+  validator: >-
+    {% if not (import_name | regex_search('^[a-z_][a-z0-9_]*$')) %}
+    A lower-case Python identifier, e.g. my_htc_models.
+    {% endif %}
+
+class_name:
+  type: str
+  help: >-
+    The model's class name, in CamelCase. Its snake_case form is the model's name, the name a fit
+    asks for (ToyHTC -> toy_htc)
+  default: ToyHTC
+  validator: >-
+    {% if not (class_name | regex_search('^[A-Z][A-Za-z0-9]*$')) %}
+    A CamelCase class name, e.g. MyHTC.
+    {% endif %}
+
+description:
+  type: str
+  help: One-line description of the package
+  default: A steady-state heat transfer coefficient model for building-energy-analysis.
+
+author_name:
+  type: str
+  help: Author's name
+  default: Your Name
+
+author_email:
+  type: str
+  help: Author's email
+  default: you@example.com
+
+licence:
+  type: str
+  help: "Licence. proprietary writes no LICENSE and marks the package `Private :: Do Not Upload`"
+  default: MIT
+  choices:
+    MIT: MIT
+    BSD-3-Clause: BSD-3-Clause
+    Apache-2.0: Apache-2.0
+    proprietary: proprietary
+
+# Derived, never asked, never stored in the answers file.
+
+# ToyHTC -> toy_htc, MyHTCModel -> my_htc_model: an underscore before a capital that follows a
+# lower-case letter, or that starts a new word after an acronym.
+model_name:
+  type: str
+  when: false
+  default: >-
+    {%- set ns = namespace(out='') -%}
+    {%- for ch in class_name -%}
+    {%- set i = loop.index0 -%}
+    {%- if ch.isupper() and i > 0 and (class_name[i - 1].islower() or class_name[i - 1].isdigit()
+         or (i + 1 < class_name | length and class_name[i + 1].islower() and class_name[i - 1].isupper())) -%}
+    {%- set ns.out = ns.out ~ '_' -%}
+    {%- endif -%}
+    {%- set ns.out = ns.out ~ ch.lower() -%}
+    {%- endfor -%}
+    {{ ns.out }}
+
+# The model contract this template version writes code against: BEA's MODEL_CONTRACT_VERSION when
+# it was last updated. Template v1.x renders contract 1.x.
+contract_version:
+  type: str
+  when: false
+  default: "1.2"
+
+_message_after_copy: |
+  Rendered {{ package_name }} ({{ class_name }}, model name {{ model_name }}).
+
+  Install it and run its tests before changing anything:
+
+      cd {{ _copier_conf.dst_path }}
+      git init -q && git add -A && git commit -qm "Render bea-model-template"
+      python -m pip install -e ".[test]"
+      TEST_TIER=fast python -m unittest discover -v
+
+  Then read AGENTS.md and README.md.

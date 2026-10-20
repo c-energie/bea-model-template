@@ -1,0 +1,80 @@
+"""``{{ class_name }}``: your physics (``my_existing_code.py``) as a BEA model.
+
+The model is wrapped by subclassing: the class declares what BEA needs to know - its name, the
+quantities it reads, its parameters with their units, bounds and priors - and its ``get_power``
+calls your function. Nothing in ``my_existing_code.py`` knows about BEA.
+
+It is a **static** model: its output at each reading depends on that reading's inputs alone, so it
+subclasses ``StaticModel``, is fitted by least squares (``curve_fit``) and can be sampled (emcee).
+A model carrying a state from one reading to the next subclasses ``DynamicModel`` instead.
+
+``H`` is one of BEA's reserved parameter names - the heat transfer coefficient, in W/K - so its
+estimates compare with every other model's. ``c`` is a name of the model's own (read as
+``{{ model_name }}.c`` beside other models' results): the reserved ``Pb`` means a base load, which
+cannot be negative, and nothing holds the toy's offset to that. Use a reserved name only for that
+quantity, in that unit; give any other parameter a name of its own.
+"""
+import numpy as np
+
+from building_energy_analysis.plugin_api import ParameterDeclaration, StaticModel
+
+from {{ import_name }}.my_existing_code import heat_loss_power
+
+#: The parameters this model fits, declared in code (BEA's parameter config can override any field).
+#: Each has a unit, an initial estimate, bounds and a default prior. The default prior is uniform
+#: over the bounds; the ``normal`` settings are there for a config that switches the family.
+#: The bounds are wide enough for BEA's synthetic cohort, whose readings are not of a real
+#: dwelling: tighten them to the physical range of the dwellings you fit.
+H_BOUNDS = (0, 20000)
+C_BOUNDS = (-200000, 200000)
+PARAMETERS = [
+    ParameterDeclaration('H', unit='W/K', initial_estimate=200, bounds=H_BOUNDS, prior='uniform',
+                         prior_settings=dict(uniform=dict(bounds=H_BOUNDS),
+                                             normal=dict(sigma=500, bounds=[0, float('inf')]))),
+    ParameterDeclaration('c', unit='W', initial_estimate=0, bounds=C_BOUNDS, prior='uniform',
+                         prior_settings=dict(uniform=dict(bounds=C_BOUNDS), normal=dict(sigma=1000))),
+]
+
+
+class {{ class_name }}(StaticModel,
+{{ ' ' * (class_name | length + 7) }}model_name='{{ model_name }}',
+{{ ' ' * (class_name | length + 7) }}parameters=PARAMETERS,
+{{ ' ' * (class_name | length + 7) }}indep_vars=['temp_int', 'temp_ext']):
+    """``power = H * (temp_int - temp_ext) + c``, fitted to a household's heating power."""
+
+    #: The model contract this class is written against. Rendered by the template; change it only
+    #: through ``copier update``.
+    contract_version = '{{ contract_version }}'
+
+    def get_power(self, x_data: np.ndarray, theta: np.ndarray, return_heating_mask: bool = False):
+        """The modelled power for every row of ``x_data`` and every parameter set in ``theta``.
+
+        ``x_data`` has one column per ``indep_vars`` entry and one row per reading; ``theta`` one
+        column per parameter, in ``PARAMETERS`` order, and one row per parameter set. The result
+        is ``(n_readings, n_parameter_sets)``.
+        """
+        x_data = np.asarray(x_data, dtype=float)
+        theta = np.atleast_2d(np.asarray(theta, dtype=float))
+        temp_int = x_data[..., [self.indep_vars.index('temp_int')]]
+        temp_ext = x_data[..., [self.indep_vars.index('temp_ext')]]
+        htc = theta[:, self.param_labels.index('H')]
+        offset = theta[:, self.param_labels.index('c')]
+
+        power = heat_loss_power(htc, temp_int, temp_ext, offset)
+        if return_heating_mask:
+            # The model has no non-heating regime: every reading is on the heating line.
+            return np.ones_like(power, dtype=bool)
+
+        return power
+
+    def input_measurement_error(self, x_data: np.ndarray, theta: np.ndarray):
+        """The variance the temperature readings' uncertainty puts on the modelled power.
+
+        ``d(power)/d(temp_int) = H`` and ``d(power)/d(temp_ext) = -H``, so each reading's
+        uncertainty contributes ``(H * u)**2``. ``(n_readings, n_parameter_sets)``, like ``get_power``.
+        """
+        theta = np.atleast_2d(np.asarray(theta, dtype=float))
+        htc = theta[:, self.param_labels.index('H')]
+        _, u_int = self.uncertainties['temp_int']
+        _, u_ext = self.uncertainties['temp_ext']
+        return (htc * u_int) ** 2 + (htc * u_ext) ** 2

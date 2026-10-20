@@ -1,0 +1,5 @@
+# Renders and their environments, from CI or a local check.
+_rendered/
+.venv/
+overrides.txt
+__pycache__/

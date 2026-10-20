@@ -1,0 +1,19 @@
+"""{{ description }}
+
+BEA finds this package's models through its manifest: ``pyproject.toml`` declares ``manifest``
+below as the package's ``bea.plugins`` entry point, and the manifest lists the models. Defining or
+importing a model registers nothing.
+"""
+from project_configuration.results.provenance import register_provenance_package
+
+# Every job config BEA writes from now on records which code of this package ran (its
+# ``git describe``, or its installed version), beside BEA's own.
+register_provenance_package('{{ package_name }}')
+
+
+def manifest():
+    """This package's ``bea.plugins`` manifest: the models it contributes."""
+    from building_energy_analysis.plugin_api import API_VERSION
+    from {{ import_name }}.model import {{ class_name }}
+
+    return {'api_version': API_VERSION, 'models': [{{ class_name }}]}

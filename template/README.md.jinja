@@ -1,0 +1,69 @@
+# {{ package_name }}
+
+{{ description }}
+
+A model package for [building-energy-analysis](https://c-energie.github.io/bea-docs/) (BEA),
+generated from [bea-model-template](https://github.com/c-energie/bea-model-template). It
+contributes one model, `{{ class_name }}`, which BEA fits under the name `{{ model_name }}`.
+
+## Quickstart
+
+```bash
+pip install -e ".[test]"
+TEST_TIER=fast python -m unittest discover -v
+```
+
+Out of the box the model is a toy, `power = H * (temp_int - temp_ext) + c`, and the tests:
+
+- check it against BEA's model contract (`tests/contract_tests.py`);
+- recover its `H` and `c` from BEA's synthetic cohort, `TestDataset`, by least squares and by
+  emcee (`tests/recovery_tests.py`).
+
+Fit it to a cohort as you would any BEA model: install this package beside the cohort's adapter
+and ask for `{{ model_name }}` by name.
+
+```python
+from building_energy_analysis.models.implementations.get_model import get_model
+from building_energy_analysis.plugin_api import ModelAnalysis
+
+analysis = ModelAnalysis(get_model(household, '{{ model_name }}'))
+analysis.get_results()
+print(analysis.parameter_estimates)
+```
+
+## Replace the toy
+
+1. **Bring your code in** beside `src/{{ import_name }}/my_existing_code.py`, unchanged, or
+   depend on it if it is already a package. It must not import BEA. Remove the toy's function.
+2. **Declare your model** in `src/{{ import_name }}/model.py`: its `model_name`, its parameters
+   (`ParameterDeclaration`: label, unit, initial estimate, bounds, prior) and the quantities it
+   reads (`indep_vars`). `H`, `HPLC`, `Tb`, `Pb` and `g` are reserved names: use one only for
+   that quantity, in its unit.
+3. **Call your function** from `get_power` (and propagate the inputs' uncertainty in
+   `input_measurement_error`). It must broadcast over arrays: one row per reading, one column per
+   parameter set.
+4. **Keep the manifest in step**: `manifest()` in `src/{{ import_name }}/__init__.py` lists every
+   model the package contributes. Renamed the class? Update it there and in `tests/`.
+5. **Replace `tests/recovery_tests.py`** with a test of your model you trust, and keep
+   `tests/contract_tests.py` as it is.
+
+Then reinstall and run the tests again.
+
+## Keeping up with BEA
+
+The package is written against BEA's **model contract {{ contract_version }}**. When BEA moves to a
+new contract major, update from the template rather than by hand:
+
+```bash
+git status --short   # must be clean
+uvx copier update
+```
+{% if licence != 'proprietary' %}
+## Licence
+
+{{ licence }}; see [LICENSE](LICENSE).
+{% else %}
+## Licence
+
+Proprietary. The package carries the `Private :: Do Not Upload` classifier, so PyPI refuses it.
+{% endif -%}

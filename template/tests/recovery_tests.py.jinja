@@ -1,0 +1,104 @@
+"""The toy's parameters, recovered from BEA's synthetic cohort by least squares and by emcee.
+
+These test the toy physics, ``power = H * (temp_int - temp_ext) + c``. When you replace the toy
+with your own model, replace them with a test of yours that you agree is meaningful - a known
+parameter recovered from readings it generated, say - or remove them. Do not leave a test of
+physics that is no longer there.
+
+``TestDataset``'s readings rise linearly in time, so its heating power is exactly linear in the
+inside-outside temperature difference and the toy fits them with no residual. ``H_ON_TEST_DATASET``
+and ``C_ON_TEST_DATASET`` are that line: the fixture's readings are part of BEA's cohort contract,
+so they do not move within contract major 1.
+"""
+import shutil
+import tempfile
+import unittest
+
+import numpy as np
+
+from building_energy_analysis.building_data.synthetic import TestDataset
+from building_energy_analysis.models.implementations.get_model import get_model
+from building_energy_analysis.plugin_api import ModelAnalysis
+
+from {{ import_name }}.model import {{ class_name }}
+
+try:
+    import emcee
+except ImportError:  # the [test] extra is not installed
+    emcee = None
+
+#: The line through ``TestDataset``'s first household, in W/K and W. The readings are made up, so
+#: the numbers say the fit ran, not anything about a dwelling.
+H_ON_TEST_DATASET = 10372.07
+C_ON_TEST_DATASET = -76795.21
+#: How close a fit has to come, relative to each value.
+TOLERANCE = 0.01
+
+
+class Tests{{ class_name }}RecoversItsParameters(unittest.TestCase):
+    """``H`` and ``c`` fitted to household ``H01`` of ``TestDataset``."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.base_dir = tempfile.mkdtemp()
+        # Sized explicitly, so the readings are the fixture's defaults whatever a settings file says.
+        cohort = TestDataset(base_dir=cls.base_dir, number_of_subjects=1, number_of_datapoints=100)
+        cls.household = cohort.get_dataset(next(iter(cohort.puprns)))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.base_dir, ignore_errors=True)
+
+    def model(self) -> {{ class_name }}:
+        """The model on the household, found by its model name, as a fit finds it."""
+        model = get_model(self.household, '{{ model_name }}')
+        self.assertIsInstance(model, {{ class_name }})
+        return model
+
+    def assertRecovers(self, estimates: dict):
+        self.assertAlmostEqual(estimates['H'] / H_ON_TEST_DATASET, 1, delta=TOLERANCE, msg=estimates)
+        self.assertAlmostEqual(estimates['c'] / C_ON_TEST_DATASET, 1, delta=TOLERANCE, msg=estimates)
+
+    def test_least_squares_recovers_the_line(self):
+        analysis = ModelAnalysis(self.model())
+        analysis.get_results()
+
+        self.assertEqual(analysis.status, 'completed', analysis)
+        self.assertRecovers({label: float(estimate) for label, (estimate, _)
+                             in analysis.parameter_estimates.items()})
+
+    @unittest.skipIf(emcee is None, 'emcee is not installed: pip install -e ".[test]"')
+    def test_emcee_recovers_the_line(self):
+        model = self.model()
+        # The readings, read once: the model's own frame is re-read on every call otherwise.
+        inputs, power = model.data_arrays()
+        power_variance = model.variable_registry.get_variable(model.dep_var).get_absolute_uncertainty(power) ** 2
+        registry = model.parameter_registry
+        registry.require_priors('emcee')
+        registry.define_bounds(model.df)
+        priors = [registry.get_parameter(label).prior for label in model.param_labels]
+
+        def log_probability(theta: np.ndarray) -> np.ndarray:
+            """The log posterior of each row of ``theta``: the declared priors, and a Gaussian
+            likelihood whose variance is the measurement uncertainty of the power readings and,
+            propagated through the model, of its inputs."""
+            log_prior = sum(prior.log_prior(theta[:, i]) for i, prior in enumerate(priors))
+            inside = np.isfinite(log_prior)
+            log_posterior = np.full(theta.shape[0], -np.inf)
+            if inside.any():
+                residual = power[:, None] - model.predict(theta[inside], inputs)
+                variance = power_variance[:, None] + model.input_measurement_error(inputs, theta[inside])
+                log_likelihood = -0.5 * np.sum(residual ** 2 / variance + np.log(2 * np.pi * variance), axis=0)
+                log_posterior[inside] = log_prior[inside] + log_likelihood
+            return log_posterior
+
+        # The walkers start spread over the priors, knowing nothing of the least-squares fit.
+        n_walkers, n_parameters = 32, len(model.param_labels)
+        rng = np.random.default_rng(0)
+        walkers = np.column_stack([rng.uniform(*prior.bounds, n_walkers) for prior in priors])
+        sampler = emcee.EnsembleSampler(n_walkers, n_parameters, log_probability, vectorize=True)
+        sampler.random_state = np.random.RandomState(1).get_state()
+        sampler.run_mcmc(walkers, 1500)
+
+        posterior_median = np.median(sampler.get_chain(discard=750, flat=True), axis=0)
+        self.assertRecovers(dict(zip(model.param_labels, posterior_median)))

@@ -1,0 +1,46 @@
+# AGENTS.md
+
+## What this is
+
+`{{ package_name }}` (`import {{ import_name }}`) is a model package for building-energy-analysis
+(BEA): {{ description }}
+
+- `src/{{ import_name }}/my_existing_code.py` - the physics, a plain function. **No BEA imports.**
+- `src/{{ import_name }}/model.py` - `{{ class_name }}(StaticModel)`, model name `{{ model_name }}`:
+  declares parameters (units, bounds, priors) and inputs, and calls the physics.
+- `src/{{ import_name }}/__init__.py` - the `bea.plugins` manifest listing the model, and
+  `register_provenance_package`.
+- Written against **model contract {{ contract_version }}** (`contract_version` on the class).
+
+## Install and test
+
+From the repository root:
+
+```bash
+pip install -e ".[test]"
+TEST_TIER=fast python -m unittest discover
+```
+
+Reinstall after any change to `pyproject.toml` (the entry point is read from installed metadata).
+`NO TESTS RAN` after a green run is the test framework switching passed classes off: delete
+`tests/Configuration_files/TestSettings_config.toml` to run everything again.
+
+## Rules
+
+- **Vocabulary.** In BEA a *Dataset* is one household's data. A data source, or a set of
+  households (a *cohort*), is never a "dataset". A *variable* is a measured input; a *parameter*
+  is what the fit infers. See BEA's
+  [CONTEXT.md](https://github.com/c-energie/building-energy-analysis/blob/master/CONTEXT.md).
+- **Never commit data** - no readings, exports or results. Tests fit BEA's synthetic `TestDataset`.
+- **Wrap, don't rewrite**: keep the physics in its own BEA-free module and call it from the model.
+- **Reserved parameter names** (`H` W/K, `HPLC` W/K, `Tb` degC, `Pb` W, `g` m2) mean the same in
+  every model; use one only for that quantity, in that unit.
+- **Never weaken a contract test** (`tests/contract_tests.py`); its failure says what to change.
+- **Contract bumps** go through the template, never by hand: commit, then `uvx copier update`.
+  Leave `contract_version` and `.copier-answers.yml` as the template rendered them.
+
+## Links
+
+- Contributing: <https://github.com/c-energie/.github/blob/main/CONTRIBUTING.md>
+- BEA docs hub: <https://c-energie.github.io/bea-docs/>
+- Agent skills: `gh skill install c-energie/building-energy-analysis --scope project`

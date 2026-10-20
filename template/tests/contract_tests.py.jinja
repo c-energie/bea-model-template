@@ -1,0 +1,16 @@
+"""The model contract, checked of ``{{ class_name }}`` by BEA's own tests.
+
+``ModelContractTests`` is BEA's: each test is one clause of the model contract, checked against
+BEA's synthetic cohort, ``TestDataset``. When the contract changes, the checks reach this package by
+upgrading BEA - nothing here needs editing. Never weaken one to make it pass: its failure message
+says what to change in the model.
+"""
+import unittest
+
+from building_energy_analysis.plugin_testing import ModelContractTests
+
+from {{ import_name }}.model import {{ class_name }}
+
+
+class Tests{{ class_name }}HoldsTheModelContract(ModelContractTests, unittest.TestCase):
+    model_class = {{ class_name }}

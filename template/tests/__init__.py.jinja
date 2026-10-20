@@ -1,0 +1,22 @@
+"""``python -m unittest discover`` from the repository root runs these tests.
+
+Each test class is registered with project-configuration's test framework, which writes
+``tests/Configuration_files/TestSettings_config.toml`` on the first run, one ``on``/``off`` entry
+per class. A class built on a framework setup is switched ``off`` once it passes, so a second run
+can report ``NO TESTS RAN``: delete that file to run everything again. The classes here are plain
+``unittest.TestCase`` classes, which it leaves on.
+"""
+from project_configuration import testing
+
+# The modules, not their classes: a test class in this package's namespace would be collected
+# by unittest as well as by the framework, and run twice.
+from tests import contract_tests, recovery_tests
+
+{{ import_name }}_tests = (contract_tests.Tests{{ class_name }}HoldsTheModelContract,
+{{ ' ' * (import_name | length + 10) }}recovery_tests.Tests{{ class_name }}RecoversItsParameters)
+
+testing.add_tests(*{{ import_name }}_tests)
+
+
+def load_tests(*args):
+    return testing.load_tests(*args)

@@ -1,0 +1,42 @@
+[project]
+name = "{{ package_name }}"
+version = "0.1.0"
+description = "{{ description }}"
+readme = "README.md"
+authors = [
+    {name = "{{ author_name }}", email = "{{ author_email }}"}
+]
+{%- if licence != 'proprietary' %}
+license = "{{ licence }}"
+license-files = ["LICENSE"]
+{%- endif %}
+requires-python = ">=3.11.4, <3.14"
+classifiers = [
+    "Programming Language :: Python :: 3",
+{%- if licence == 'proprietary' %}
+    # Proprietary: PyPI refuses an upload carrying this classifier, so the package cannot be
+    # published by accident.
+    "Private :: Do Not Upload",
+{%- endif %}
+]
+dependencies = [
+    # BEA 1.x is model contract major 1, the contract this package is written against. A new
+    # contract major is a new BEA major: move to it with `copier update`.
+    "building-energy-analysis>=1.0,<2",
+    "numpy",
+]
+
+[project.optional-dependencies]
+# What the tests need beyond the package: the emcee test samples the model's posterior.
+test = ["emcee>=3.1"]
+
+# How BEA finds the models: one entry point naming the package's manifest (BEA's ADR 0004).
+[project.entry-points."bea.plugins"]
+{{ import_name }} = "{{ import_name }}:manifest"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "{{ import_name }}"
