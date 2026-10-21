@@ -16,6 +16,13 @@ A render with no edits installs and passes its tests. The agent skill `bea-model
 with BEA, drives this template:
 `gh skill install c-energie/building-energy-analysis --scope project`.
 
+## Contents
+
+- [Questions](#questions)
+- [What it renders](#what-it-renders)
+- [Versions](#versions)
+- [CI](#ci)
+
 ## Questions
 
 | Question | Default | |
